@@ -108,8 +108,8 @@ namespace tabletop
       nh.param("filter_planes", filter_planes_, false);
       nh.param("min_table_height", min_table_height_, 0.5);
       nh.param("max_table_height", max_table_height_, 1.0);
-      nh.param("robot_frame", robot_frame_id_, std::string("/base_link"));
-      nh.param("sensor_frame", sensor_frame_id_, std::string("/head_mount_kinect_rgb_optical_frame"));
+      nh.param("robot_frame", robot_frame_id_, std::string("/base"));
+      nh.param("sensor_frame", sensor_frame_id_, std::string("/kinect2_rgb_optical_frame"));
 
       double max_angle_diff;
       double table_normal_x;
@@ -123,7 +123,7 @@ namespace tabletop
       min_angle_cos_ = cos(max_angle_diff);
 
       axis_ = tf::Vector3 (table_normal_x, table_normal_y, table_normal_z);
-      std::cout << __LINE__ << " :: " << min_table_height_ << " , " << max_table_height_ << " , " << min_angle_cos_
+      std::cout << __FILE__ << " " << __LINE__ << " :: " << min_table_height_ << " , " << max_table_height_ << " , " << min_angle_cos_
                 << " , " << robot_frame_id_ << " , " << sensor_frame_id_ << std::endl;
     }
 
@@ -146,6 +146,7 @@ namespace tabletop
         prev_image_cols_ = points3d_->cols;
         normal_computer_ = cv::RgbdNormals(points3d_->rows, points3d_->cols, CV_32F, *K_, 5, cv::RgbdNormals::RGBD_NORMALS_METHOD_FALS);
       }
+       std::cout << __FILE__ << " " << __LINE__ << std::endl;
       // Compute the normals
       cv::Mat normals;
       normal_computer_(*points3d_, normals);
@@ -160,7 +161,9 @@ namespace tabletop
       plane_finder.set("threshold", *plane_threshold_);
       plane_finder.set("min_size", int(*min_table_size_));
       plane_finder.set("sensor_error_a", 0.0075);
+       std::cout << __FILE__ << " " << __LINE__ << " RgbdPlane points: " << points3d_->rows << "x" << points3d_->cols << " depth " << points3d_->depth() << " " << points3d_->type() <<  " normals: " << normals.rows << "x" << normals.cols << " " << normals.depth() << " type " << normals.type() << std::endl;
       plane_finder(*points3d_, normals, *table_mask_, plane_coefficients);
+     std::cout << __FILE__ << " " << __LINE__ << " after plane detection " << plane_coefficients.size() << std::endl;
 
       std::vector<bool> valid_planes;
       unsigned valid_plane_count = 0;
@@ -171,6 +174,7 @@ namespace tabletop
         tf_->lookupTransform(robot_frame_id_, sensor_frame_id_,ros::Time(0), transform);
         tf::Matrix3x3 basis = transform.getBasis();
         tf::Vector3 origin = transform.getOrigin();
+       std::cout << __FILE__ << " " << __LINE__ << "filter_planes_ " << std::endl;
 
         for (unsigned pIdx = 0; pIdx < plane_coefficients.size(); ++pIdx)
         {
@@ -195,16 +199,18 @@ namespace tabletop
       if (valid_plane_count > 0)
       {
         // Figure out the points of each plane
-        std::vector<std::vector<cv::Point2i> > points_for_hull(plane_coefficients.size());
+        std::vector<std::vector<cv::Point2i> > points_for_hull(plane_coefficients.size()+1); // for some reason...
         cv::Mat_<cv::Vec3f>::const_iterator point3d = points3d_->begin<cv::Vec3f>();
         cv::Mat_<uchar>::const_iterator point_mask = table_mask_->begin<uchar>();
         cv::Point2i prev_point;
+       std::cout << __FILE__ << " " << __LINE__ << "loop1 " << " over " << table_mask_->rows << " " << table_mask_->cols << " points3d_ " << points3d_->rows << " " << points3d_->cols <<  " found planes " << plane_coefficients.size() << std::endl;
         for (int y = 0; y < table_mask_->rows; ++y)
         {
           int prev_index = 255;
           for (int x = 0; x < table_mask_->cols; ++x, ++point3d, ++point_mask)
           {
             int index = *point_mask;
+           // std::cout << "index " << x << " " << y << " " << index << std::endl;
             if (index == 255)
             {
               // Close the previous segment
@@ -228,11 +234,12 @@ namespace tabletop
           if (prev_index != 255)
             points_for_hull[prev_index].push_back(prev_point);
         }
+       std::cout << __FILE__ << " " << __LINE__ << "loop2 " << points_for_hull.size() << std::endl;
 
         // Fill the outputs
         for (int i = 0; i < points_for_hull.size(); ++i)
         {
-          if (valid_planes[i])
+          if (valid_planes[i] && points_for_hull[i].size() > 0)
           {
             // Compute the convex hull
             std::vector<cv::Point2i> hull;
@@ -295,6 +302,7 @@ namespace tabletop
             clouds_hull_->push_back(out);
           }
         }
+       std::cout << __FILE__ << " " << __LINE__ << " done " << table_coefficients_->size() << " planes" << std::endl;
       }
     }
     else
